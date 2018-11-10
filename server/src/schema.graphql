@@ -37,3 +37,7 @@ type User {
   posts: [Post!]!
   createdAt: DateTime!
 }
+
+type Subscription {
+  post: Post
+}

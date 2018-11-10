@@ -1,27 +1,78 @@
-import ApolloClient from "apollo-boost";
-import gql from "graphql-tag";
-import React from "react";
-import ReactDOM from "react-dom";
+import { ApolloClient } from "apollo-client";
+import { ApolloLink, Observable, split } from "apollo-link";
+import { ApolloProvider, Mutation, Subscription, Query } from "react-apollo";
+import { Formik, Form, Field } from "formik";
+import { HttpLink } from "apollo-link-http";
+import { InMemoryCache } from "apollo-cache-inmemory";
+import { onError } from "apollo-link-error";
+import { WebSocketLink } from "apollo-link-ws";
+import { withClientState } from "apollo-link-state";
+import { getMainDefinition } from "apollo-utilities";
+
 import {
   BrowserRouter as Router,
   Redirect,
   Route,
   NavLink
 } from "react-router-dom";
-import { ApolloProvider, Mutation, Query } from "react-apollo";
-import { Formik, Form, Field } from "formik";
+import gql from "graphql-tag";
+import React from "react";
+import ReactDOM from "react-dom";
 
 let bearerToken = localStorage.token;
 
-const client = new ApolloClient({
-  uri: "http://localhost:4000/",
-  request: operation => {
-    const headers = {
-      Authorization: `Bearer ${bearerToken}`
-    };
-    operation.setContext({ headers });
-    return operation;
+const request = async operation => {
+  const headers = {
+    Authorization: `Bearer ${bearerToken}`
+  };
+  operation.setContext({ headers });
+};
+
+const wsLink = new WebSocketLink({
+  uri: `ws://localhost:4000/`,
+  options: {
+    reconnect: true
   }
+});
+
+const httpLink = new HttpLink({
+  uri: "http://localhost:4000/",
+  credentials: "same-origin"
+});
+
+const link = split(
+  ({ query }) => {
+    const { kind, operation } = getMainDefinition(query);
+    return kind === "OperationDefinition" && operation === "subscription";
+  },
+  wsLink,
+  httpLink
+);
+
+const requestLink = new ApolloLink(
+  (operation, forward) =>
+    new Observable(observer => {
+      let handle;
+      Promise.resolve(operation)
+        .then(oper => request(oper))
+        .then(() => {
+          handle = forward(operation).subscribe({
+            next: observer.next.bind(observer),
+            error: observer.error.bind(observer),
+            complete: observer.complete.bind(observer)
+          });
+        })
+        .catch(observer.error.bind(observer));
+
+      return () => {
+        if (handle) handle.unsubscribe();
+      };
+    })
+);
+
+const client = new ApolloClient({
+  cache: new InMemoryCache(),
+  link: ApolloLink.from([requestLink, link])
 });
 
 const SIGN_UP = gql`
@@ -66,10 +117,27 @@ const GET_POSTS = gql`
   }
 `;
 
+const FEED = gql`
+  subscription onPostAdded {
+    post {
+      id
+      title
+      content
+    }
+  }
+`;
+
 class Home extends React.Component {
   render() {
     return (
       <div>
+        {
+          <Subscription subscription={FEED}>
+            {({ data: { post = {} } = {}, loading }) => (
+              <h4>New comment: {!loading && post.id}</h4>
+            )}
+          </Subscription>
+        }
         <Query query={GET_POSTS}>
           {({ client, loading, data: { feed = [] } = {} }) => (
             <pre>{JSON.stringify(feed, null, 2)}</pre>

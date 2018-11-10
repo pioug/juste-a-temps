@@ -1,13 +1,15 @@
-const { Query } = require("./Query");
 const { Mutation } = require("./Mutation");
-const { User } = require("./User");
 const { Post } = require("./Post");
+const { Query } = require("./Query");
+const { Subscription } = require("./Subscription");
+const { User } = require("./User");
 
 const resolvers = {
-  Query,
   Mutation,
+  Post,
+  Query,
+  Subscription,
   User,
-  Post
 };
 
 module.exports = {
